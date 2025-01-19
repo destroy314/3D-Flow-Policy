@@ -4,10 +4,8 @@
 # bash scripts/train_policy.sh simple_dp3 adroit_hammer 0322 0 0
 # bash scripts/train_policy.sh dp3 metaworld_basketball 0602 0 0
 
-
-
-DEBUG=False
-save_ckpt=True
+DEBUG=false
+save_ckpt=False
 
 alg_name=${1}
 task_name=${2}
@@ -19,7 +17,7 @@ run_dir="data/outputs/${exp_name}_seed${seed}"
 
 
 # gpu_id=$(bash scripts/find_gpu.sh)
-gpu_id=${5}
+gpu_id=0
 echo -e "\033[33mgpu id (to use): ${gpu_id}\033[0m"
 
 
@@ -50,5 +48,3 @@ python train.py --config-name=${config_name}.yaml \
                             checkpoint.save_ckpt=${save_ckpt}
 
 
-
-                                

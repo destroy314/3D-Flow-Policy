@@ -1,7 +1,7 @@
 defaults:
   - task: adroit_hammer
 
-name: train_dp3
+name: train_dp3_dit
 
 task_name: ${task.name}
 shape_meta: ${task.shape_meta}
@@ -16,27 +16,20 @@ keypoint_visible_rate: 1.0
 obs_as_global_cond: True
 
 policy:
-  _target_: diffusion_policy_3d.policy.dp3.DP3
+  _target_: diffusion_policy_3d.policy.dp3_dit.DP3DiT
   use_point_crop: true
   condition_type: film
-  use_down_condition: true
-  use_mid_condition: true
-  use_up_condition: true
   
-  # Number of parameters: 255.1383M
-  diffusion_step_embed_dim: 128
-  down_dims:
-  - 512
-  - 1024
-  - 2048
+  # Number of parameters: 9.8641M
+  diffusion_dim: 256
   crop_shape:
   - 80
   - 80
   encoder_output_dim: 64
   horizon: ${horizon}
-  kernel_size: 5
+  depth: 8
   n_action_steps: ${n_action_steps}
-  n_groups: 8
+  num_heads: 4
   n_obs_steps: ${n_obs_steps}
 
   noise_scheduler:
@@ -48,7 +41,7 @@ policy:
     clip_sample: True
     set_alpha_to_one: True
     steps_offset: 0
-    prediction_type: sample
+    prediction_type: sample # 听说比epsilon好
 
 
   num_inference_steps: 10

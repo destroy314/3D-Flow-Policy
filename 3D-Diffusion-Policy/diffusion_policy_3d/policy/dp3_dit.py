@@ -12,13 +12,13 @@ import pytorch3d.ops as torch3d_ops
 
 from diffusion_policy_3d.model.common.normalizer import LinearNormalizer
 from diffusion_policy_3d.policy.base_policy import BasePolicy
-from diffusion_policy_3d.model.diffusion.conditional_unet1d import ConditionalUnet1D
+from diffusion_policy_3d.model.diffusion.cond_dit1d import DiT1D
 from diffusion_policy_3d.model.diffusion.mask_generator import LowdimMaskGenerator
 from diffusion_policy_3d.common.pytorch_util import dict_apply
 from diffusion_policy_3d.common.model_util import print_params
 from diffusion_policy_3d.model.vision.pointnet_extractor import DP3Encoder
 
-class DP3(BasePolicy):
+class DP3DiT(BasePolicy):
     def __init__(self, 
             shape_meta: dict,
             noise_scheduler: DDPMScheduler,
@@ -27,14 +27,10 @@ class DP3(BasePolicy):
             n_obs_steps,
             num_inference_steps=None,
             obs_as_global_cond=True,
-            diffusion_step_embed_dim=256,
-            down_dims=(256,512,1024),
-            kernel_size=5,
-            n_groups=8,
+            diffusion_dim=256,
+            depth=5,
+            num_heads=8,
             condition_type="film",
-            use_down_condition=True,
-            use_mid_condition=True,
-            use_up_condition=True,
             encoder_output_dim=256,
             crop_shape=None,
             use_pc_color=False,
@@ -61,7 +57,7 @@ class DP3(BasePolicy):
 
 
         obs_encoder = DP3Encoder(observation_space=obs_dict,
-                                                img_crop_shape=crop_shape,
+                                                   img_crop_shape=crop_shape,
                                                 out_channel=encoder_output_dim,
                                                 pointcloud_encoder_cfg=pointcloud_encoder_cfg,
                                                 use_pc_color=use_pc_color,
@@ -85,24 +81,16 @@ class DP3(BasePolicy):
         cprint(f"[DiffusionUnetHybridPointcloudPolicy] use_pc_color: {self.use_pc_color}", "yellow")
         cprint(f"[DiffusionUnetHybridPointcloudPolicy] pointnet_type: {self.pointnet_type}", "yellow")
 
-
-
-        model = ConditionalUnet1D(
-            input_dim=input_dim,
-            local_cond_dim=None,
-            global_cond_dim=global_cond_dim,
-            diffusion_step_embed_dim=diffusion_step_embed_dim,
-            down_dims=down_dims,
-            kernel_size=kernel_size,
-            n_groups=n_groups,
-            condition_type=condition_type,
-            use_down_condition=use_down_condition,
-            use_mid_condition=use_mid_condition,
-            use_up_condition=use_up_condition,
+        self.model = DiT1D(
+            input_size=horizon,
+            in_channels=action_dim,
+            hidden_size=diffusion_dim,
+            depth=depth,
+            num_heads=num_heads,
+            cond_channels=obs_feature_dim*n_obs_steps
         )
 
         self.obs_encoder = obs_encoder
-        self.model = model
         self.noise_scheduler = noise_scheduler
         
         
@@ -140,7 +128,6 @@ class DP3(BasePolicy):
             # keyword arguments to scheduler.step
             **kwargs
             ):
-        model = self.model
         scheduler = self.noise_scheduler
 
 
@@ -158,9 +145,9 @@ class DP3(BasePolicy):
             trajectory[condition_mask] = condition_data[condition_mask]
 
 
-            model_output = model(sample=trajectory,
-                                timestep=t, 
-                                local_cond=local_cond, global_cond=global_cond)
+            model_output = self.model(trajectory,
+                                t, 
+                                global_cond)
             
             # 3. compute previous image: x_t -> x_t-1
             trajectory = scheduler.step(
@@ -193,6 +180,13 @@ class DP3(BasePolicy):
         Da = self.action_dim
         Do = self.obs_feature_dim
         To = self.n_obs_steps
+
+        """
+                  |<-1->|
+        |<-n_obs_steps->|
+        |<---------horizon---------->|
+                  |<-n_action_steps->|
+        """
 
         # build input
         device = self.device
@@ -330,10 +324,9 @@ class DP3(BasePolicy):
 
         # Predict the noise residual
         
-        pred = self.model(sample=noisy_trajectory, 
-                        timestep=timesteps, 
-                            local_cond=local_cond, 
-                            global_cond=global_cond)
+        pred = self.model(noisy_trajectory, 
+                          timesteps, 
+                          global_cond)
 
 
         pred_type = self.noise_scheduler.config.prediction_type 
