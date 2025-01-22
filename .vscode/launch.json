@@ -2,21 +2,23 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Train Policy Script",
+            "name": "Train Policy",
             "type": "debugpy",
             "request": "launch",
             "cwd": "${workspaceFolder}/3D-Diffusion-Policy",
             "program": "train.py",
             "args": [
-                "--config-name=simple_dp3_dit.yaml",
-                "task=metaworld_assembly",
+                "--config-name=simple_dp3.yaml",
+                "task=metaworld_disassemble",
+                // "task=adroit_door",
                 "hydra.run.dir=data/outputs/debug",
                 "training.debug=True",
                 "training.seed=0",
                 "training.device=cuda:0",
                 "exp_name=debug",
                 "logging.mode=offline",
-                "checkpoint.save_ckpt=False"
+                "checkpoint.save_ckpt=False",
+                "+policy.pred_future=True"
             ],
             "env": {
                 "HYDRA_FULL_ERROR": "1",

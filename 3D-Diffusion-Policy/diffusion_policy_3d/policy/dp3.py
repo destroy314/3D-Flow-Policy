@@ -40,6 +40,7 @@ class DP3(BasePolicy):
             use_pc_color=False,
             pointnet_type="pointnet",
             pointcloud_encoder_cfg=None,
+            pred_future=False,
             # parameters passed to step
             **kwargs):
         super().__init__()
@@ -78,6 +79,11 @@ class DP3(BasePolicy):
                 global_cond_dim = obs_feature_dim
             else:
                 global_cond_dim = obs_feature_dim * n_obs_steps
+        input_dim = action_dim
+        self.pred_future = pred_future
+        if pred_future:
+            input_dim += encoder_output_dim
+        self.input_dim = input_dim
         
 
         self.use_pc_color = use_pc_color
@@ -190,6 +196,7 @@ class DP3(BasePolicy):
         value = next(iter(nobs.values()))
         B, To = value.shape[:2]
         T = self.horizon
+        Di = self.input_dim
         Da = self.action_dim
         Do = self.obs_feature_dim
         To = self.n_obs_steps
@@ -212,9 +219,10 @@ class DP3(BasePolicy):
                 # reshape back to B, Do
                 global_cond = nobs_features.reshape(B, -1)
             # empty data for action
-            cond_data = torch.zeros(size=(B, T, Da), device=device, dtype=dtype)
+            cond_data = torch.zeros(size=(B, T, Di), device=device, dtype=dtype)
             cond_mask = torch.zeros_like(cond_data, dtype=torch.bool)
         else:
+            assert False
             # condition through impainting
             this_nobs = dict_apply(nobs, lambda x: x[:,:To,...].reshape(-1,*x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
@@ -282,6 +290,11 @@ class DP3(BasePolicy):
                 lambda x: x[:,:self.n_obs_steps,...].reshape(-1,*x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
 
+            if self.pred_future:
+                all_pc=nobs['point_cloud'].reshape(-1, *nobs['point_cloud'].shape[2:])
+                future_features = self.obs_encoder.extractor(all_pc).reshape(batch_size,horizon,-1).detach()
+                trajectory = torch.cat([nactions, future_features], dim=-1)
+
             if "cross_attention" in self.condition_type:
                 # treat as a sequence
                 global_cond = nobs_features.reshape(batch_size, self.n_obs_steps, -1)
@@ -289,9 +302,10 @@ class DP3(BasePolicy):
                 # reshape back to B, Do
                 global_cond = nobs_features.reshape(batch_size, -1)
             # this_n_point_cloud = this_nobs['imagin_robot'].reshape(batch_size,-1, *this_nobs['imagin_robot'].shape[1:])
-            this_n_point_cloud = this_nobs['point_cloud'].reshape(batch_size,-1, *this_nobs['point_cloud'].shape[1:])
-            this_n_point_cloud = this_n_point_cloud[..., :3]
+            # this_n_point_cloud = this_nobs['point_cloud'].reshape(batch_size,-1, *this_nobs['point_cloud'].shape[1:])
+            # this_n_point_cloud = this_n_point_cloud[..., :3]
         else:
+            assert False
             # reshape B, T, ... to B*T
             this_nobs = dict_apply(nobs, lambda x: x.reshape(-1, *x.shape[2:]))
             nobs_features = self.obs_encoder(this_nobs)
@@ -302,7 +316,9 @@ class DP3(BasePolicy):
 
 
         # generate impainting mask
-        condition_mask = self.mask_generator(trajectory.shape)
+        condition_mask = self.mask_generator(trajectory[...,:self.action_dim].shape)
+        assert not torch.any(condition_mask)
+        condition_mask = torch.zeros_like(trajectory, dtype=torch.bool)
 
         # Sample noise that we'll add to the images
         noise = torch.randn(trajectory.shape, device=trajectory.device)
@@ -326,7 +342,7 @@ class DP3(BasePolicy):
         loss_mask = ~condition_mask
 
         # apply conditioning
-        noisy_trajectory[condition_mask] = cond_data[condition_mask]
+        # noisy_trajectory[condition_mask] = cond_data[condition_mask]
 
         # Predict the noise residual
         
@@ -358,13 +374,18 @@ class DP3(BasePolicy):
 
         loss = F.mse_loss(pred, target, reduction='none')
         loss = loss * loss_mask.type(loss.dtype)
+        bc_loss = loss[..., :self.action_dim].mean().item()
+        if self.pred_future:
+            pred_loss = loss[..., self.action_dim:].mean().item()
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
         loss = loss.mean()
         
 
         loss_dict = {
-                'bc_loss': loss.item(),
+                'bc_loss': bc_loss,
             }
+        if self.pred_future:
+            loss_dict['pred_loss'] = pred_loss
 
         # print(f"t2-t1: {t2-t1:.3f}")
         # print(f"t3-t2: {t3-t2:.3f}")

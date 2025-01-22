@@ -128,6 +128,7 @@ class SequenceSampler:
             if key not in self.key_first_k:
                 sample = input_arr[buffer_start_idx:buffer_end_idx]
             else:
+                assert False
                 # performance optimization, only load used obs steps
                 n_data = buffer_end_idx - buffer_start_idx
                 k_data = min(self.key_first_k[key], n_data)
@@ -141,6 +142,7 @@ class SequenceSampler:
                     import pdb; pdb.set_trace()
             data = sample
             if (sample_start_idx > 0) or (sample_end_idx < self.sequence_length):
+                # padding
                 data = np.zeros(
                     shape=(self.sequence_length,) + input_arr.shape[1:],
                     dtype=input_arr.dtype)
